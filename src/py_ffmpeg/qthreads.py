@@ -6,7 +6,7 @@ from .encoder import EncodingState, VideoEncoder
 class EncoderWorkerSignals(QObject):
     log_updated = Signal(str)
     progress_updated = Signal(float, int)
-    state_changed = Signal(EncodingState())  # To notify the UI to update button states etc.
+    state_changed = Signal(EncodingState)  # To notify the UI to update button states etc.
     started_with_options = Signal(dict)
     finished = Signal(bool, str)  # success, message
 
