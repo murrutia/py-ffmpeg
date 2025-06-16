@@ -20,6 +20,7 @@ build-backend = "hatchling.build"
 dev = [
     "pyside6-essentials>=6.9.1",
     "python-dateutil>=2.9.0.post0",
+    "tqdm>=4.67.1",
 ]
 
 [tool.uv.sources]

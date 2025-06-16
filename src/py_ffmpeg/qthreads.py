@@ -1,5 +1,7 @@
 from PySide6.QtCore import QObject, QThread, Signal
 
+from py_ffmpeg.media_info import MediaInfo
+
 from .encoder import EncodingState, VideoEncoder
 
 
@@ -7,8 +9,8 @@ class EncoderWorkerSignals(QObject):
     log_updated = Signal(str)
     progress_updated = Signal(float, int)
     state_changed = Signal(EncodingState)  # To notify the UI to update button states etc.
-    started_with_options = Signal(dict)
-    finished = Signal(bool, str)  # success, message
+    started_with_options = Signal(MediaInfo, dict)
+    finished = Signal(bool, str, MediaInfo)  # success, message
 
 
 class EncoderWorker(QThread):
@@ -30,3 +32,7 @@ class EncoderWorker(QThread):
 
     def cancel(self):
         self._encoder.cancel()
+
+    @property
+    def input_mediainfo(self):
+        return self._encoder.input_mediainfo

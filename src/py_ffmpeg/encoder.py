@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ffmpeg.errors import FFmpegError
+
+from py_ffmpeg.ffprobe import FFprobe
+from py_ffmpeg.media_info import MediaInfo
 from .context import FFmpegContext
 
 from enum import Enum, auto
@@ -18,6 +21,98 @@ class EncodingState(Enum):
     CANCELLED = auto()
     COMPLETED = auto()
     ERROR = auto()
+
+    def __str__(self) -> str:
+        _display_texts = {
+            EncodingState.IDLE: "Inactif",
+            EncodingState.PREPARING: "Préparation en cours",
+            EncodingState.ENCODING: "Encodage en cours",
+            EncodingState.CANCELLING: "Annulation en cours",
+            EncodingState.CANCELLED: "Annulé",
+            EncodingState.COMPLETED: "Terminé",
+            EncodingState.ERROR: "Erreur",
+        }
+        # Retourne le texte correspondant ou le nom du membre par défaut si non trouvé
+        # Usage : print(str(encoding_state))
+        return _display_texts.get(self, self.name)
+
+    @property
+    def display_text(self) -> str:
+        return str(self)
+
+
+class EncodingSettings:
+    """
+    Représente les paramètres d'encodage vidéo.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._codec = "libx264"  # Codec vidéo par défaut
+        self._crf = 23  # Constant Rate Factor par défaut
+        self._preset = "medium"  # Preset d'encodage par défaut
+        self._audio_codec = "aac"  # Codec audio par défaut
+        self._audio_bitrate = "128k"  # Bitrate audio par défaut
+        self._output_format = "mp4"  # Format de sortie par défaut
+
+    @property
+    def codec(self) -> str:
+        return self._codec
+
+    @codec.setter
+    def codec(self, value: str):
+        self._codec = value
+
+    @property
+    def crf(self) -> int:
+        return self._crf
+
+    @crf.setter
+    def crf(self, value: int):
+        if not 0 <= value <= 51:
+            raise VideoSettingError("CRF doit être entre 0 et 51.")
+        self._crf = value
+
+    @property
+    def preset(self) -> str:
+        return self._preset
+
+    @preset.setter
+    def preset(self, value: str):
+        valid_presets = [
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        ]
+        if value not in valid_presets:
+            raise VideoSettingError(f"Preset invalide. Choisir parmi : {', '.join(valid_presets)}")
+        self._preset = value
+
+    @property
+    def audio_codec(self) -> str:
+        return self._audio_codec
+
+    @audio_codec.setter
+    def audio_codec(self, value: str):
+        self._audio_codec = value
+
+    @property
+    def audio_bitrate(self) -> str:
+        return self._audio_bitrate
+
+    @audio_bitrate.setter
+    def audio_bitrate(self, value: str):
+        self._audio_bitrate = value
+
+    @property
+    def output_format(self) -> str:
+        return self._output_format
 
 
 class VideoEncodingError(Exception):
@@ -58,9 +153,9 @@ class VideoEncoder:
         # Callbacks for notifying progress, logs, and completion
         self.on_log_callback: Callable[[str], None] | None = None
         self.on_state_changed_callback: Callable[[EncodingState], None] | None = None
-        self.on_started_callback: Callable[[dict], None] | None = None
+        self.on_started_callback: Callable[[MediaInfo, dict], None] | None = None
         self.on_progress_callback: Callable[[float, int], None] | None = None
-        self.on_finished_callback: Callable[[bool, str], None] | None = None
+        self.on_finished_callback: Callable[[bool, str, MediaInfo | None], None] | None = None
 
     def _log(self, msg: str):
         if self.on_log_callback:
@@ -94,10 +189,6 @@ class VideoEncoder:
             self._validate_input()
             self._setup_ffmpeg()
 
-            self._log(
-                f"Fichier source {self._input_path} :\n" + self._ffmpeg.media_info.summary_str
-            )
-
             self._setup_ffmpeg_callbacks()
 
             self._log(f"Début de l'encodage avec la commande :")
@@ -106,13 +197,6 @@ class VideoEncoder:
             self._ffmpeg.execute()
 
             self._handle_processing_result()
-
-            self._log(
-                f"Fichier de sortie {self._output_path} :\n"
-                + FFmpegContext(ffprobe_executable=self._ffprobe_executable)
-                .input(self._output_path)
-                .media_info.summary_str
-            )
 
         except ValidationException as e:
             self._handle_error(f"Erreur de validation : {e}")
@@ -144,7 +228,7 @@ class VideoEncoder:
     def _handle_error(self, msg: str):
         self._error_details = msg
         if self.on_finished_callback:
-            self.on_finished_callback(False, msg)
+            self.on_finished_callback(False, msg, None)
 
     def _setup_ffmpeg_callbacks(self):
         if self.on_progress_callback:
@@ -179,7 +263,8 @@ class VideoEncoder:
                     options_str = line.split("options:")[1].strip()
                     self._options_used = dict(x.split("=") for x in options_str.split(" "))
                     self._set_state(EncodingState.ENCODING)
-                    self.on_started_callback(self._options_used)
+                    if self.on_started_callback:
+                        self.on_started_callback(self.input_mediainfo, self._options_used)
                     # Once options are found, remove the listener
                     self._ffmpeg.remove_listener("stderr", on_stderr)
 
@@ -187,18 +272,22 @@ class VideoEncoder:
         if self._cancelled:
             self._set_state(EncodingState.CANCELLED)
             if self.on_finished_callback:
-                self.on_finished_callback(False, "Encodage annulé par l'utilisateur")
+                self.on_finished_callback(False, "Encodage annulé par l'utilisateur", None)
         elif self._ffmpeg._process.returncode == 0:
             self._set_state(EncodingState.COMPLETED)
             if self.on_progress_callback:
                 self.on_progress_callback(100, 0)
             if self.on_finished_callback:
-                self.on_finished_callback(True, "Encodage terminé avec succès !")
+                self.on_finished_callback(
+                    True,
+                    "Encodage terminé avec succès !",
+                    FFprobe(self._ffprobe_executable).probe(self._output_path),
+                )
         else:
             self._set_state(EncodingState.ERROR)
             error_msg = f"Erreur d'encodage (code: {self._ffmpeg._process.returncode})"
             if self.on_finished_callback:
-                self.on_finished_callback(False, error_msg)
+                self.on_finished_callback(False, error_msg, None)
 
     def cancel(self):
         if self._current_state not in [EncodingState.ENCODING, EncodingState.PREPARING]:
@@ -219,6 +308,15 @@ class VideoEncoder:
                         self._log("Processus FFmpeg forcé à s'arrêter")
                     except Exception as kill_error:
                         self._log(f"Impossible d'arrêter le processus: {kill_error}")
+                finally:
+                    if self._output_path and self._output_path.exists():
+                        self._output_path.unlink()
+                        self._log("Fichier de sortie supprimé")
+
+    @property
+    def input_mediainfo(self):
+        if self._ffmpeg:
+            return self._ffmpeg.media_info
 
     def update_encoding_params(self, new_params: dict[str, Any]):
         if self.is_encoding or self.is_cancelling:
