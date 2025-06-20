@@ -1,5 +1,6 @@
 import traceback
 from datetime import datetime
+from enum import Enum, auto
 from logging import getLogger
 from pathlib import Path
 from typing import Any, Callable
@@ -8,9 +9,8 @@ from ffmpeg.errors import FFmpegError
 
 from py_ffmpeg.ffprobe import FFprobe
 from py_ffmpeg.media_info import MediaInfo
-from .context import FFmpegContext
 
-from enum import Enum, auto
+from .context import FFmpegContext
 
 
 class EncodingState(Enum):

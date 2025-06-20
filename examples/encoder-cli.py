@@ -5,12 +5,14 @@ import signal
 import sys
 from pathlib import Path
 
+from py_utils.datetime import duration_human
+from py_utils.dl_binaries import download_binaries, get_architecture, get_system
+from py_utils.misc import add_dir_to_path
 from tqdm import tqdm
 
 from py_ffmpeg.config import EncodingConfig
 from py_ffmpeg.encoder import EncodingState, VideoEncoder
 from py_ffmpeg.media_info import MediaInfo  # Utilisé pour l'annotation de type
-from py_utils.datetime import duration_human
 
 # Instances globales pour y accéder depuis les callbacks et le gestionnaire de signal
 pbar: tqdm | None = None
@@ -71,14 +73,9 @@ def sigint_handler(sig, frame):
     # Le callback on_encoding_finished sera appelé par VideoEncoder pour finaliser.
 
 
-def main():
+def main(input_path: Path):
     global pbar, encoder_instance
 
-    parser = argparse.ArgumentParser(description="Encodeur vidéo CLI minimaliste avec py-ffmpeg.")
-    parser.add_argument("input_file", type=str, help="Chemin vers le fichier vidéo d'entrée.")
-    args = parser.parse_args()
-
-    input_path = Path(args.input_file)
     if not input_path.is_file():
         print(f"Erreur : Fichier d'entrée non trouvé : {input_path}", file=sys.stderr)
         sys.exit(1)
@@ -119,4 +116,25 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Encodeur vidéo CLI minimaliste avec py-ffmpeg.")
+    parser.add_argument("input_file", type=str, help="Chemin vers le fichier vidéo d'entrée.")
+    parser.add_argument(
+        "--download-binaries", "-b", action="store_true", help="Télécharge les binaires"
+    )
+    args = parser.parse_args()
+
+    bin_dir = Path(__file__).parent.parent / "bin"
+    add_dir_to_path(bin_dir)
+
+    if args.download_binaries:
+        print("Téléchargement des binaires...")
+        tmp_dir = Path("/tmp/binary_downloads")
+        result = download_binaries(
+            dl_dir=tmp_dir,
+            dest_dir=bin_dir,
+            filter_names=["ffmpeg", "ffprobe"],
+        )
+
+    input_path = Path(args.input_file)
+
+    main(input_path)

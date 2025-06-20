@@ -1,5 +1,12 @@
-from pathlib import Path
+#!/usr/bin/env python3
+
+import argparse
 import sys
+from pathlib import Path
+
+from py_utils.datetime import duration_human
+from py_utils.dl_binaries import download_binaries, get_architecture, get_system
+from py_utils.misc import add_dir_to_path
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import Qt
 from PySide6.QtWidgets import (
@@ -15,8 +22,8 @@ from PySide6.QtWidgets import (
 
 from py_ffmpeg.config import EncodingConfig
 from py_ffmpeg.encoder import EncodingState, VideoEncoder
+from py_ffmpeg.media_info import MediaInfo
 from py_ffmpeg.qthreads import EncoderWorker
-from py_utils.datetime import duration_human
 
 
 class EncoderViewModelSignals(QObject):
@@ -24,7 +31,7 @@ class EncoderViewModelSignals(QObject):
     progress_updated = Signal(float, int)
     state_changed = Signal(EncodingState)
     encoding_started = Signal()
-    encoding_finished = Signal()
+    encoding_finished = Signal(bool, str, MediaInfo)
 
 
 class EncoderViewModel(QObject):
@@ -109,6 +116,7 @@ class Window(QWidget):
 
     def setup_connections(self):
         self.choose_btn.clicked.connect(self.choose_file)
+        self.vm.signals.log_updated.connect(lambda msg: print(msg))
         self.vm.signals.state_changed.connect(lambda state: self.status.setText(str(state)))
         self.vm.signals.progress_updated.connect(self.on_progress_updated)
         self.vm.signals.encoding_started.connect(self.on_encoding_started)
@@ -124,13 +132,17 @@ class Window(QWidget):
         self.message.setText(f"{self.vm.input_path}\n⇣\n{self.vm.output_path}")
         self.message.setVisible(True)
 
-    def on_encoding_finished(self):
+    def on_encoding_finished(self, success, message, output_mediainfo):
         self.progress.setVisible(False)
-        msg = "<h3>Encodage terminé !</h3>"
-        url = QUrl.fromLocalFile(self.vm.output_path).toString()
-        msg += f'<a href="{url}">{self.vm.output_path}</a>'
-        self.message.setText(msg)
-        self.message.setOpenExternalLinks(True)
+        self.message.setVisible(True)
+        if success:
+            msg = f"<h3>{message}</h3>"
+            url = QUrl.fromLocalFile(self.vm.output_path).toString()
+            msg += f'<a href="{url}">{self.vm.output_path}</a>'
+            self.message.setText(msg)
+            self.message.setOpenExternalLinks(True)
+        else:
+            self.message.setText(f"<pre>{message}</pre>")
 
     def choose_file(self):
         self.vm.input_path, _ = QFileDialog.getOpenFileName(
@@ -150,4 +162,24 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Encodeur vidéo PySide6 minimaliste avec py-ffmpeg."
+    )
+    parser.add_argument(
+        "--download-binaries", "-b", action="store_true", help="Télécharge les binaires"
+    )
+    args = parser.parse_args()
+
+    bin_dir = Path(__file__).parent.parent / "bin"
+    add_dir_to_path(bin_dir)
+
+    if args.download_binaries:
+        print("Téléchargement des binaires...")
+        tmp_dir = Path("/tmp/binary_downloads")
+        result = download_binaries(
+            dl_dir=tmp_dir,
+            dest_dir=bin_dir,
+            filter_names=["ffmpeg", "ffprobe"],
+        )
+
     main()
