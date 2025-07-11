@@ -188,7 +188,6 @@ class VideoEncoder:
 
             self._validate_input()
             self._setup_ffmpeg()
-
             self._setup_ffmpeg_callbacks()
 
             self._log(f"Début de l'encodage avec la commande :")

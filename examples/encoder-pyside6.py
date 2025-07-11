@@ -1,13 +1,17 @@
-from pathlib import Path
 import sys
+from pathlib import Path
+
+from py_utils.datetime import duration_human
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -17,16 +21,6 @@ from py_ffmpeg.encoder import EncodingState, VideoEncoder
 from py_ffmpeg.ffprobe import FFprobe
 from py_ffmpeg.media_info import MediaInfo
 from py_ffmpeg.qthreads import EncoderWorker
-from py_utils.datetime import duration_human
-
-from PySide6.QtWidgets import QFrame
-
-
-class QHLine(QFrame):
-    def __init__(self):
-        super(QHLine, self).__init__()
-        self.setFrameShape(QFrame.HLine)
-        self.setFrameShadow(QFrame.Sunken)
 
 
 class EncoderViewModelSignals(QObject):
@@ -62,18 +56,6 @@ class EncoderViewModel(QObject):
             self._output_path = EncodingConfig().suggest_output_filepath(value)
             self._start_encoding()
 
-    # @property
-    # def input_mediainfo(self):
-    #     if self._encoder_worker:
-    #         return self._encoder_worker.input_mediainfo
-
-    # @property
-    # def output_info(self):
-    #     if self._output_path:
-    #         output_path = Path(self._output_path)
-    #         if output_path.exists():
-    #             return FFprobe().probe(self._output_path)
-
     def _start_encoding(self):
         encoder = VideoEncoder(self._input_path, self._output_path)
         self._encoder_worker = EncoderWorker(encoder)
@@ -104,8 +86,13 @@ class Window(QWidget):
         self.choose_btn = QPushButton("Choisir un fichier à encoder")
         layout.addWidget(self.choose_btn)
 
+        self.cancel_btn = QPushButton("Annuler l'encodage")
+        self.cancel_btn.setVisible(False)
+        layout.addWidget(self.cancel_btn)
+
         self.setup_input_infos()
         self.setup_progress()
+        self.setup_log_area()
         self.setup_output_infos()
 
     def setup_input_infos(self):
@@ -125,6 +112,12 @@ class Window(QWidget):
         self.input_data = QLabel()
         layout.addWidget(self.input_data)
 
+    def setup_log_area(self):
+        self.log_area = QTextEdit()
+        self.log_area.setReadOnly(True)
+        self.log_area.setVisible(False)
+        self.layout().addWidget(self.log_area)
+
     def setup_output_infos(self):
         self.output_infos = QWidget()
         self.output_infos.setVisible(False)
@@ -132,8 +125,6 @@ class Window(QWidget):
 
         layout = QVBoxLayout()
         self.output_infos.setLayout(layout)
-
-        layout.addWidget(QHLine())
 
         self.output_filename = QLabel()
         layout.addWidget(self.output_filename)
@@ -164,10 +155,12 @@ class Window(QWidget):
 
     def setup_connections(self):
         self.choose_btn.clicked.connect(self.choose_file)
+        self.cancel_btn.clicked.connect(self.vm.quit_cleanly)
         self.vm.signals.state_changed.connect(lambda state: self.status.setText(str(state)))
         self.vm.signals.progress_updated.connect(self.on_progress_updated)
         self.vm.signals.encoding_started.connect(self.on_encoding_started)
         self.vm.signals.encoding_finished.connect(self.on_encoding_finished)
+        self.vm.signals.log_updated.connect(self.log_area.append)
 
     def on_progress_updated(self, percent, remaining):
         self.progress_bar.setValue(int(percent))
@@ -175,14 +168,17 @@ class Window(QWidget):
 
     def on_encoding_started(self, input_mediainfo, options):
         self.choose_btn.setVisible(False)
+        self.cancel_btn.setVisible(True)
         self.input_filename.setText(self.vm.input_path.name)
         self.input_folder.setText(f"Dossier : {self.vm.input_path.parent}")
         self.input_data.setText(input_mediainfo.summary_str)
+
         self.input_infos.setVisible(True)
+        self.log_area.setVisible(True)
         self.progress.setVisible(True)
 
     def on_encoding_finished(self, success, message, output_mediainfo):
-        # self.choose_btn.setVisible(True)
+        self.cancel_btn.setVisible(False)
         self.progress.setVisible(False)
         if output_mediainfo:
             self.output_filename.setText(self.vm.output_path.name)
@@ -190,6 +186,8 @@ class Window(QWidget):
             self.output_data.setText(output_mediainfo.summary_str)
         else:
             self.output_filename.setText(message)
+
+        self.output_filename.setStyleSheet("color: green" if success else "color: red")
 
         self.output_infos.setVisible(True)
 

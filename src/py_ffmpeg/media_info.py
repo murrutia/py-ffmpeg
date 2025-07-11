@@ -5,13 +5,12 @@ from pathlib import Path
 from typing import Any, get_type_hints
 
 from dateutil.parser import parse as parse_date
-
 from py_utils.datetime import (
     DATETIME_HUMAN_FORMAT,
-    parse_datetime,
     datetime_human,
     duration_human,
     get_date_from_filepath,
+    parse_datetime,
     tzlocutc,
 )
 from py_utils.misc import demultiply_value
@@ -79,6 +78,10 @@ class StreamInfo(_BaseInfo):
     def codec_name(self) -> str | None:
         """Nom du codec (ex: 'h264', 'aac')."""
         return self.get("codec_name")
+
+    @property
+    def profile(self) -> str:
+        return self.get("profile", "")
 
     @property
     def index(self) -> int:
@@ -282,6 +285,10 @@ class AudioStreamInfo(StreamInfo):
     def bit_rate_human(self) -> str:
         return demultiply_value(self.bit_rate) + "b/s"
 
+    @property
+    def channel_layout(self) -> str:
+        return self.get("channel_layout", "")
+
 
 class MediaFormatInfo(_BaseInfo):
     """Représente les informations du format global du média."""
@@ -472,22 +479,29 @@ class MediaInfo(_BaseInfo):
         return self.main_audio_stream is not None
 
     @property
+    def summary(self):
+        return f"Résumé : {self.resolution}, {self.duration_human()}, {self.size_human()}"
+
+    @property
     def summary_str(self):
         s = f"Durée : {self.duration_human()} - Taille : {self.size_human('o')}\n"
 
         # Construction de la ligne d'infos vidéo (si une piste existe)
         if self.has_video_stream:
             s += "video : "
-            s += f"{self.main_video_stream.codec_name} ({self.main_video_stream.profile}) "
+            s += f"{self.main_video_stream.codec_name} "
+            s += f"({self.main_video_stream.profile}) " if self.main_video_stream.profile else ""
             s += f"{self.resolution} [SAR {self.sar} DAR {self.dar}] "
             s += f"{self.main_video_stream.byte_rate_human} {self.frame_rate}fps [BPP {self.bpp}]\n"
 
-            # Construction et emission de la ligne d'infos audio (si une piste existe)
-            if self.has_audio_stream:
-                s += f"audio : "
-                s += f"{self.main_audio_stream.codec_name} ({self.main_audio_stream.profile}) "
-                s += f"{self.channel_layout} "
-                s += f"{self.main_audio_stream.sample_rate}Hz {self.main_audio_stream.bit_rate_human}\n"
+        # Construction et emission de la ligne d'infos audio (si une piste existe)
+        if self.has_audio_stream:
+            s += f"audio : "
+            s += f"{self.main_audio_stream.codec_name} "
+            s += f"({self.main_audio_stream.profile}) " if self.main_audio_stream.profile else ""
+            s += f"{self.channels}ch "
+            s += f"({self.channel_layout}) " if self.channel_layout else ""
+            s += f"{self.main_audio_stream.sample_rate}Hz {self.main_audio_stream.bit_rate_human}\n"
 
         return s.strip()
 
